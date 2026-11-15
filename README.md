@@ -1,32 +1,61 @@
 # RotaryPosEmb：2026 CANN 挑战赛算子
 
-本项目保存 2026 华为 CANN 挑战赛 [RotaryPosEmb 题目](https://cannjudge.cn/public/op_challenge_jingdong_prelim/rotaryposemb)的最终提交工程，使用 Ascend C 实现，采用 **Kernel 直调**方式运行。
+本项目开源 [2026 华为 CANN 挑战赛 RotaryPosEmb](https://cannjudge.cn/public/op_challenge_jingdong_prelim/rotaryposemb) 的 Ascend C 实现。工程通过 **Kernel 直调**运行：`main.asc` 负责设备和数据准备，`kernel.asc` 提供算子入口及 Kernel。
 
-## 功能
+对旋转位置编码（RoPE）的输入按位置和频率计算旋转角，并完成 `y = x * cos(angle) + rotate_half(x) * sin(angle)`。参数、公式和调用说明见 [RotaryPosEmb 接口文档](docs/RotaryPosEmb.md)。
 
-对输入的旋转位置编码维度执行 RoPE。参考实现见 [scripts/RotaryPosEmb.py](scripts/RotaryPosEmb.py)：输入 `x` 的形状为 `(B, S, H, rope_dim)`，位置索引 `positions` 的形状为 `(B, S)`、类型为 int32，`theta` 为频率基数；输出与输入的形状和数据类型相同。
+## 参数概览
 
-参考计算为 `y = x * cos(angle) + rotate_half(x) * sin(angle)`，其中角度由位置和逆频率计算，`rotate_half` 将最后一维的两半变换为 `[-x₂, x₁]`。实际支持的输入组合和约束应以赛题与源码为准。
+| 参数 | 说明 |
+| --- | --- |
+| `x` | 输入，`(B, S, H, D)`，float16 或 float32。 |
+| `positions` | 位置索引，`(B, S)`，int32。 |
+| `theta` | 频率基数，示例中为 10000。 |
+| `y` | 输出，与 `x` 的形状和类型相同。 |
 
-## 工程结构
+## 环境要求
 
-- [kernel.asc](kernel.asc)：算子实现和直调入口，包含多核任务划分与分支实现。
-- [main.asc](main.asc)：ACL 设备、内存和流管理，以及直调示例。
-- [CMakeLists.txt](CMakeLists.txt)、[run.sh](run.sh)：构建与本地示例流程。
-- [scripts/](scripts/)：输入数据生成、NumPy 参考计算和输出校验。
+需要匹配的昇腾 NPU、CANN Toolkit（含 Ascend C 编译环境）、CMake ≥ 3.16、make、Bash、`timeout`、Python 3 和 NumPy。工程默认编译目标为 `dav-2201`；实际适配设备和 CANN 版本以环境为准。`ml_dtypes` 是脚本中的可选依赖。
 
-## 构建和运行
-
-需要匹配的昇腾 NPU、CANN Toolkit（含 Ascend C 编译环境）、CMake 3.16 或以上、Python 3 和 NumPy。工程默认编译目标为 `dav-2201`；实际兼容性取决于设备与 CANN 版本。`ml_dtypes` 在数据生成脚本中为可选依赖。
-
-在昇腾环境中执行：
+## 快速开始
 
 ```bash
+git clone https://github.com/xinjiayuan-diyishenqing/cann-challenge-2026-rotaryposemb.git
+cd cann-challenge-2026-rotaryposemb
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 bash run.sh
 ```
 
-若 Toolkit 不在默认路径，请先设置 `ASCEND_HOME_PATH` 并加载相应环境。脚本会删除并重建工程下的 `build/`，生成测试数据，运行并校验 **case0**；本地示例并不覆盖全部评测用例。`main.asc` 中示例形状为 `(1, 7, 1, 16)`，`theta=10000`。如需运行其他输入，需相应调整示例入口及数据。
+CANN 路径请按实际安装位置调整。脚本会删除并重建工程目录下的 `build/`，生成数据、运行设备程序并校验 case0。示例使用 `(1, 7, 1, 16)` 的 float32 输入和 `theta=10000`；它只运行这一个本地样例。改变输入形状时，需要同时调整调用侧的元数据、内存、数据生成和校验。
+
+校验脚本自身的测试不需要 NPU：
+
+```bash
+python3 -m pip install numpy
+python3 -m unittest discover -s tests -v
+```
+
+## 目录结构
+
+```text
+├── kernel.asc                  # Ascend C 算子和 Kernel 直调入口
+├── main.asc                    # ACL 初始化、设备内存和调用示例
+├── CMakeLists.txt              # 构建配置
+├── run.sh                      # 构建、生成 case0 并运行校验
+├── data_utils.h                # 本地文件读写辅助代码
+├── scripts/
+│   ├── RotaryPosEmb.py         # NumPy 参考计算
+│   ├── gen_data.py             # case0 数据生成
+│   └── verify_result.py        # 输出文件和数值校验
+├── tests/
+│   └── test_verify_result.py   # 校验脚本边界测试
+├── docs/
+│   └── RotaryPosEmb.md         # 参数、接口与实现说明
+├── .github/workflows/          # 校验脚本自动测试
+└── LICENSE
+```
+
+`kernel.asc` 和 `main.asc` 保留最终提交的直调实现。仓库中的校验脚本和文档在公开整理时单独维护。
 
 ## 许可与来源
 
