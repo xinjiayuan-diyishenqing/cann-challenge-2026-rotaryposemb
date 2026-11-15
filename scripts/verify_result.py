@@ -16,6 +16,9 @@ case_output_specs = {
     ],
 }
 
+# Case 0 output shape is (1, 7, 1, 16), as defined in main.asc.
+case_expected_elements = {0: {"y": 112}}
+
 if bfloat16 is None:
     for _cid, _specs in case_output_specs.items():
         for _name, _dtype, _rtol, _atol, _tol in _specs:
@@ -24,20 +27,25 @@ if bfloat16 is None:
                 print("Install with: pip install ml_dtypes")
                 sys.exit(1)
 
-def verify_result(output_path, golden_path, dtype, rtol, atol, tol=0.0):
+def verify_result(output_path, golden_path, dtype, rtol, atol, tol=0.0, expected_elements=None):
+    # Check raw byte sizes before reading: np.fromfile ignores trailing partial elements.
+    output_bytes = os.path.getsize(output_path)
+    golden_bytes = os.path.getsize(golden_path)
+    itemsize = np.dtype(dtype).itemsize
+    if output_bytes != golden_bytes:
+        print(f"FAILED: output has {output_bytes} bytes, golden has {golden_bytes} — size mismatch")
+        return False
+    if golden_bytes % itemsize != 0:
+        print(f"FAILED: file size {golden_bytes} is not a multiple of dtype size {itemsize}")
+        return False
+    if expected_elements is not None and golden_bytes != expected_elements * itemsize:
+        print(f"FAILED: expected {expected_elements} elements, got {golden_bytes // itemsize}")
+        return False
+
     output = np.fromfile(output_path, dtype=dtype)
     golden = np.fromfile(golden_path, dtype=dtype)
     total_size = golden.size
-
-    if output.size != golden.size:
-        if output.size < golden.size:
-            golden = golden[:output.size]
-            print(f"WARNING: output {output.size} < golden {total_size} elements, truncated golden to match")
-        else:
-            print(f"FAILED: output has {output.size} elements, golden has {total_size} — size mismatch")
-            return False
-
-    missing = total_size - output.size
+    missing = 0
 
     if np.issubdtype(dtype, np.integer) or np.issubdtype(dtype, np.bool_):
         if missing == 0 and np.array_equal(output, golden):
@@ -101,6 +109,7 @@ if __name__ == "__main__":
             print(f"FAILED: golden_{name}.bin not found")
             all_pass = False
             continue
-        if not verify_result(output_path, golden_path, dtype, rtol, atol, tol):
+        if not verify_result(output_path, golden_path, dtype, rtol, atol, tol,
+                             expected_elements=case_expected_elements.get(case_id, {}).get(name)):
             all_pass = False
     sys.exit(0 if all_pass else 1)
